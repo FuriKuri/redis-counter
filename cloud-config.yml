@@ -1,0 +1,52 @@
+#cloud-config
+
+coreos:
+  update:
+    reboot-strategy: off
+  units:
+    - name: "docker-network.pre.service"
+      command: "start"
+      content: |
+        [Unit]
+        Description=Prepare docker network
+        After=docker.service
+        Requires=docker.service
+
+        [Service]
+        Type=oneshot
+        ExecStartPre=-/usr/bin/docker network rm isolated_service_nw
+        ExecStart=/usr/bin/docker network create --driver bridge isolated_service_nw
+    - name: "redis.service"
+      command: "start"
+      content: |
+        [Unit]
+        Description=Start redis server
+        After=docker.service
+        Requires=docker.service
+        After=docker-network.pre.service
+        Requires=docker-network.pre.service
+
+        [Service]
+        Restart=always
+        ExecStartPre=-/usr/bin/docker kill redis
+        ExecStartPre=-/usr/bin/docker rm redis
+        ExecStartPre=-/usr/bin/docker pull redis
+        ExecStop=/usr/bin/docker stop -t 2 redis
+        ExecStart=/usr/bin/docker run --name redis redis --maxmemory 200mb --maxmemory-policy allkeys-lru --appendonly no --save ""
+    - name: "counter.service"
+      command: "start"
+      content: |
+        [Unit]
+        Description=Start counter server
+        After=docker.service
+        Requires=docker.service
+        After=redis.service
+        Requires=redis.service
+
+        [Service]
+        Restart=always
+        ExecStartPre=-/usr/bin/docker kill counter
+        ExecStartPre=-/usr/bin/docker rm counter
+        ExecStartPre=-/usr/bin/docker pull furikuri/redis-counter
+        ExecStop=/usr/bin/docker stop -t 2 furikuri/redis-counter
+        ExecStart=/usr/bin/docker run --link redis:redis --name counter -p 8080:8080 furikuri/redis-counter
